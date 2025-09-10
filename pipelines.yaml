@@ -1,0 +1,55 @@
+log-ingestion-pipeline:
+  source:
+    http:
+      port: 2021
+  processor:
+    - date:
+        from_time_received: true
+        destination: "@timestamp"
+  route:
+    - nginx_access_route: '/service == "nginx" and /log_type == "access"'
+    - nginx_error_route: '/service == "nginx" and /log_type == "error"'
+    - php_fpm_route: '/service == "php-fpm"'
+    - mysql_route: '/service == "mysql"'
+  sink:
+    - pipeline:
+        name: "nginx-access-processing-pipeline"
+        routes: [nginx_access_route]
+    - opensearch:
+        hosts: ["https://opensearch-node:9200"]
+        username: "admin"
+        password: "<PASS>"
+        insecure: true
+        index: "nginx-error-logs"
+        routes: [nginx_error_route]
+    - opensearch:
+        hosts: ["https://opensearch-node:9200"]
+        username: "admin"
+        password: "<PASS>"
+        insecure: true
+        index: "php-fpm-logs"
+        routes: [php_fpm_route]
+    - opensearch:
+        hosts: ["https://opensearch-node:9200"]
+        username: "admin"
+        password: "<PASS>"
+        insecure: true
+        index: "mysql-logs"
+        routes: [mysql_route]
+
+nginx-access-processing-pipeline:
+  source:
+    pipeline:
+      name: "log-ingestion-pipeline"
+  processor:
+    - grok:
+        match:
+          log:
+            - "%{IPORHOST:nginx.access.remote_addr} - %{USERNAME:nginx.access.remote_user} \\[%{HTTPDATE:nginx.access.timestamp}\\] \"%{WORD:nginx.access.method} %{URIPATHPARAM:nginx.access.uri} HTTP/%{NUMBER:nginx.access.http_version}\" %{NUMBER:nginx.access.status:int} %{NUMBER:nginx.access.body_bytes_sent:int}( \"%{GREEDYDATA:nginx.access.referer}\")?( \"%{GREEDYDATA:nginx.access.user_agent}\")?"
+  sink:
+    - opensearch:
+        hosts: ["https://opensearch-node:9200"]
+        username: "admin"
+        password: "<PASS>"
+        insecure: true
+        index: "nginx-access-logs"
